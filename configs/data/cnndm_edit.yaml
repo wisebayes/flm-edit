@@ -1,0 +1,19 @@
+# CNN/DailyMail maskdisc edit data
+# source: summary_partial_ids (partially denoised summary, ~75% filled)
+# target: summary_gold_ids (clean gold summary)
+# tokenizer: Qwen2.5 (vocab ~152K, mask token = 126336)
+
+train: cnndm_edit
+valid: cnndm_edit
+dataset_type: maskdisc
+
+train_path: /mnt/swordfish-pool2/ck3255/flm-edit/data/cnndm_train_maskdisc_partial.jsonl
+valid_path: /mnt/swordfish-pool2/ck3255/flm-edit/data/cnndm_validation_maskdisc_partial.jsonl
+
+tokenizer_name_or_path: Qwen/Qwen2.5-1.5B
+cache_dir: /mnt/swordfish-pool2/ck3255/miniconda3/pkgs
+max_length: 128
+instruction_max_length: 0
+
+context_key: null
+context_max_length: 512

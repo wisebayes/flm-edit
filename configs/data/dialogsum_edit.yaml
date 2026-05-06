@@ -1,0 +1,20 @@
+# DialogSum maskdisc edit data
+# source: summary_partial_ids (partially denoised summary, ~75% filled)
+# target: summary_gold_ids (clean gold summary)
+# tokenizer: Qwen2.5 (vocab ~152K, mask token = 126336)
+
+train: dialogsum_edit
+valid: dialogsum_edit
+dataset_type: maskdisc
+
+train_path: /mnt/swordfish-pool2/ck3255/flm-edit/data/dialogsum_train_maskdisc_partial_12460.jsonl
+valid_path: /mnt/swordfish-pool2/ck3255/flm-edit/data/dialogsum_val_maskdisc_partial_500.jsonl
+
+tokenizer_name_or_path: Qwen/Qwen2.5-1.5B
+cache_dir: /mnt/swordfish-pool2/ck3255/miniconda3/pkgs
+max_length: 256   # dialogsum gold max=237; use 256 to avoid truncation
+instruction_max_length: 0   # no instruction field in this data
+
+# set context_key to 'dialogue' to include the conversation as cross-attn context
+context_key: null
+context_max_length: 512

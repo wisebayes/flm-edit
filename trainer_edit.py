@@ -41,10 +41,15 @@ class TrainerEditBase(L.LightningModule):
         self.config = config
         self.ignore_bos = getattr(config.algo, 'ignore_bos', False)
         self.tokenizer = tokenizer
-        if vocab_size is None:
-            self.vocab_size = len(self.tokenizer)
-        else:
+        if vocab_size is not None:
             self.vocab_size = vocab_size
+        elif hasattr(tokenizer, 'vocab_size') and tokenizer.vocab_size is not None:
+            # Use tokenizer.vocab_size (base vocab, before added tokens) then
+            # account for any added special tokens so IDs like 126336 are valid.
+            self.vocab_size = max(tokenizer.vocab_size,
+                                  len(tokenizer) if tokenizer else 0)
+        else:
+            self.vocab_size = len(tokenizer)
 
         self.antithetic_sampling = config.training.antithetic_sampling
         self.parameterization = config.algo.parameterization

@@ -27,6 +27,7 @@ torch.serialization.add_safe_globals([
 import algo_edit
 import utils
 from data.edit_dataset import EditDataset
+from data.maskdisc_dataset import MaskDiscEditDataset
 from transformers import AutoTokenizer
 
 omegaconf.OmegaConf.register_new_resolver('cwd', os.getcwd)
@@ -55,16 +56,33 @@ def get_tokenizer(config):
     return tok
 
 
+def _make_dataset(config, tokenizer, split: str):
+    """Instantiate the correct dataset class based on config.data.dataset_type."""
+    path = config.data.train_path if split == 'train' else config.data.valid_path
+    dtype = getattr(config.data, 'dataset_type', 'edit')
+
+    if dtype == 'maskdisc':
+        context_key = getattr(config.data, 'context_key', None)
+        ctx_tok = tokenizer if context_key else None
+        return MaskDiscEditDataset(
+            path=path,
+            max_length=config.data.max_length,
+            context_key=context_key,
+            tokenizer=ctx_tok,
+            context_max_length=getattr(config.data, 'context_max_length', 512),
+        )
+    else:
+        return EditDataset(
+            path, tokenizer,
+            max_length=config.data.max_length,
+            instruction_max_length=getattr(config.data, 'instruction_max_length', 64),
+        )
+
+
 def get_dataloaders(config, tokenizer):
     from torch.utils.data import DataLoader
-    train_ds = EditDataset(
-        config.data.train_path, tokenizer,
-        max_length=config.data.max_length,
-        instruction_max_length=config.data.instruction_max_length)
-    valid_ds = EditDataset(
-        config.data.valid_path, tokenizer,
-        max_length=config.data.max_length,
-        instruction_max_length=config.data.instruction_max_length)
+    train_ds = _make_dataset(config, tokenizer, 'train')
+    valid_ds = _make_dataset(config, tokenizer, 'valid')
     train_dl = DataLoader(
         train_ds, batch_size=config.loader.batch_size,
         shuffle=True, num_workers=config.loader.num_workers,

@@ -1,0 +1,15 @@
+# Small DIT backbone sized for Qwen2.5 vocabulary (~152K tokens)
+# Use this instead of 'small' when training on maskdisc data
+
+name: qwen_small
+type: ddit
+hidden_size: 768
+cond_dim: 128
+length: 256          # covers dialogsum (max 237) and cnndm (max 119)
+n_blocks: 12
+n_heads: 12
+scale_by_sigma: True
+dropout: 0.1
+tie_word_embeddings: False
+vocab_lookup: True
+n_src_encoder_blocks: 4
