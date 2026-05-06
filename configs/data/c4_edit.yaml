@@ -1,0 +1,8 @@
+train: c4_edit
+valid: c4_edit
+train_path: /data/c4_edit/train.jsonl
+valid_path: /data/c4_edit/valid.jsonl
+tokenizer_name_or_path: gpt2
+cache_dir: /data/.cache
+max_length: 128
+instruction_max_length: 64

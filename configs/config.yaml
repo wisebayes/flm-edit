@@ -1,0 +1,94 @@
+defaults:
+  - _self_
+  - /callbacks: [checkpoint_every_n_steps, checkpoint_monitor, learning_rate_monitor]
+  - /data: c4_edit
+  - /model: small
+  - /strategy: ddp
+  - /lr_scheduler: constant_warmup
+  - /algo: flm_edit
+
+mode: train  # train / ppl_eval / sample_eval / edit_eval
+
+seed: 1
+
+loader:
+  global_batch_size: 256
+  eval_global_batch_size: ${.global_batch_size}
+  batch_size: ${div_up:${.global_batch_size}, ${eval:${trainer.devices} * ${trainer.num_nodes}}}
+  eval_batch_size: ${div_up:${.eval_global_batch_size}, ${eval:${trainer.devices} * ${trainer.num_nodes}}}
+  num_workers: 4
+  pin_memory: True
+
+sampling:
+  predictor: euler
+  steps: [1, 4, 16, 64]
+  use_float64: True
+  p_nucleus: 1.0
+  num_sample_batches: 1
+  num_sample_log: 4
+  semi_ar: False
+  temperature: 1.0
+
+training:
+  ema: 0.9999
+  antithetic_sampling: True
+  sampling_eps: 1e-3
+  finetune_path: ''
+  not_sampling_t: False
+
+eval:
+  checkpoint_path: ''
+  disable_ema: False
+  compute_generative_perplexity: True
+  perplexity_batch_size: 8
+  compute_perplexity_on_sanity: False
+  gen_ppl_eval_model_name_or_path: gpt2-large
+  generate_samples: True
+  generated_samples_path: ${cwd:}/samples.json
+
+optim:
+  weight_decay: 0
+  lr: 3e-4
+  beta1: 0.9
+  beta2: 0.999
+  eps: 1e-8
+
+trainer:
+  _target_: lightning.Trainer
+  accelerator: cuda
+  num_nodes: 1
+  devices: ${device_count:}
+  accumulate_grad_batches: ${div_up:${loader.global_batch_size}, ${eval:${trainer.devices} * ${loader.batch_size} * ${trainer.num_nodes}}}
+  gradient_clip_val: 1.0
+  precision: 'bf16'
+  num_sanity_val_steps: 2
+  max_steps: 500_000
+  log_every_n_steps: 100
+  limit_train_batches: 1.0
+  limit_val_batches: 1.0
+  val_check_interval: 5000
+
+wandb:
+  project: flm-edit
+  notes: FLM-Edit
+  group: null
+  job_type: null
+  name: null
+  id: ${.name}_${seed}
+  tags:
+    - ${data.train}
+    - ${algo.name}
+
+hydra:
+  run:
+    dir: ./outputs/${data.train}/${now:%Y.%m.%d}/${now:%H%M%S}
+  job:
+    chdir: true
+
+checkpointing:
+  save_dir: ${cwd:}
+  resume_from_ckpt: false
+  resume_ckpt_path: ${.save_dir}/checkpoints/last.ckpt
+
+is_di4c: False
+is_di4c_deterministic: True
