@@ -1,0 +1,13 @@
+# CNN/DM data re-tokenized with GPT-2 for finetuning from owt_flm.ckpt
+
+train: cnndm_edit_owt
+valid: cnndm_edit_owt
+dataset_type: gpt2_edit
+
+train_path: /mnt/swordfish-pool2/ck3255/flm-edit/data/cnndm_train_maskdisc_partial.jsonl
+valid_path: /mnt/swordfish-pool2/ck3255/flm-edit/data/cnndm_validation_maskdisc_partial.jsonl
+
+tokenizer_name_or_path: gpt2
+cache_dir: /mnt/swordfish-pool2/ck3255/miniconda3/pkgs
+max_length: 128
+masking_strategy: random

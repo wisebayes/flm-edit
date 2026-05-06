@@ -1,0 +1,27 @@
+# Stage 1 FLMEdit, warm-started from a pretrained upstream FLM checkpoint.
+# The DIT backbone layers are initialised from the checkpoint; the new
+# cross-attention layers and SourceEncoder are trained from random init.
+
+name: flm_edit_finetune
+backbone: dit_edit
+parameterization: mean
+time_conditioning: True
+T: 0
+causal_attention: False
+t_max: 1.0
+t_min: 0.0
+double_temb: False
+learnable_loss_weighting: False
+use_instruction_conditioning: False
+ignore_bos: False
+upweight_changed_tokens: False
+
+# Path to the upstream FLM .ckpt file (set before running)
+pretrained_flm_path: ''
+
+# Whether to use EMA weights from the checkpoint (recommended)
+pretrained_use_ema: True
+
+# If True, freeze self-attention + MLP layers and train only the new
+# cross-attention layers and SourceEncoder (useful when data is small)
+freeze_backbone: False

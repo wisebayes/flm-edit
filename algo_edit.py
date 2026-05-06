@@ -253,6 +253,118 @@ class FLMEdit(FLMEditBase):
 
 
 # ---------------------------------------------------------------------------
+# Stage 1b: FLMEditFinetune — start from pretrained upstream FLM backbone
+# ---------------------------------------------------------------------------
+
+def load_flm_backbone_into_dit_edit(dit_edit_model, flm_checkpoint_path: str,
+                                    use_ema: bool = True):
+    """Copy pretrained FLM DIT weights into a DITEdit backbone.
+
+    The upstream FLM checkpoint contains a DIT trained on GPT-2 / BERT tokens.
+    DITEdit extends each DDiTBlock with cross-attention, so we load with
+    strict=False: matching self-attention / MLP / adaLN / embedding layers
+    transfer; new cross-attention and SourceEncoder layers keep their init.
+
+    EMA shadow_params are stored positionally and correspond 1:1 to the
+    backbone's trainable parameters (all keys except registered buffers like
+    rotary_emb.inv_freq).  Buffers are taken from state_dict directly.
+    """
+    import omegaconf
+    torch.serialization.add_safe_globals([
+        omegaconf.dictconfig.DictConfig,
+        omegaconf.base.ContainerMetadata,
+        omegaconf.base.Metadata,
+    ])
+    print(f"Loading FLM backbone weights from: {flm_checkpoint_path}")
+    ckpt = torch.load(flm_checkpoint_path, map_location='cpu', weights_only=False)
+
+    raw_sd = {k.replace('._orig_mod.', '.'): v
+              for k, v in ckpt.get('state_dict', {}).items()
+              if k.startswith('backbone.')}
+
+    if use_ema and 'ema' in ckpt:
+        shadow = ckpt['ema'].get('shadow_params', [])
+        # Registered buffers (not tracked by EMA) — only inv_freq in DIT
+        buf_keys = {k for k in raw_sd if 'inv_freq' in k}
+        param_keys = [k for k in raw_sd if k not in buf_keys]
+        if len(param_keys) == len(shadow):
+            # Build name → EMA tensor mapping
+            ema_sd = {k: v for k, v in zip(param_keys, shadow)}
+            # Add buffers from state_dict
+            for k in buf_keys:
+                ema_sd[k] = raw_sd[k]
+            raw_sd = ema_sd
+            print(f"  Using EMA ({len(shadow)} shadow params + "
+                  f"{len(buf_keys)} buffers)")
+        else:
+            print(f"  WARNING: EMA count mismatch "
+                  f"({len(shadow)} shadow vs {len(param_keys)} params) "
+                  f"— falling back to state_dict")
+    else:
+        print(f"  Using state_dict ({len(raw_sd)} backbone keys)")
+
+    # Strip 'backbone.' prefix to match DITEdit's own state_dict keys
+    sd = {k[len('backbone.'):]: v for k, v in raw_sd.items()}
+
+    missing, unexpected = dit_edit_model.load_state_dict(sd, strict=False)
+    cross_keys = {k for k in missing if 'cross' in k or 'src_encoder' in k}
+    other_missing = [k for k in missing if k not in cross_keys]
+    print(f"  Transferred {len(sd) - len(unexpected)} / {len(sd)} keys")
+    print(f"  New edit-only layers (expected missing): {len(cross_keys)}")
+    if other_missing:
+        print(f"  WARNING — unexpectedly missing: {other_missing[:8]}")
+    if unexpected:
+        print(f"  WARNING — unexpected keys: {unexpected[:5]}")
+    return dit_edit_model
+
+
+class FLMEditFinetune(FLMEdit):
+    """FLMEdit initialised from a pretrained upstream FLM backbone checkpoint.
+
+    Identical to FLMEdit except setup() loads the pretrained DIT weights.
+    The new cross-attention and SourceEncoder layers train from random init.
+
+    Required config key:
+        algo.pretrained_flm_path  — path to upstream .ckpt file
+
+    Optional config keys:
+        algo.pretrained_use_ema   — use EMA weights from checkpoint (default True)
+        algo.freeze_backbone      — freeze self-attn+MLP, train only new layers
+                                    (useful when labelled edit data is small)
+    """
+
+    def setup(self, stage: str):
+        if stage != 'fit':
+            return
+        if self._is_resuming:
+            print(">>> Resuming checkpoint — skipping pretrained backbone load.")
+            return
+
+        path = getattr(self.config.algo, 'pretrained_flm_path', '')
+        if not path:
+            print("WARNING: no pretrained_flm_path set — training from random init.")
+            return
+
+        use_ema = getattr(self.config.algo, 'pretrained_use_ema', True)
+        load_flm_backbone_into_dit_edit(self.backbone, path, use_ema=use_ema)
+
+        if getattr(self.config.algo, 'freeze_backbone', False):
+            self._freeze_pretrained_backbone()
+
+    def _freeze_pretrained_backbone(self):
+        frozen, trainable = 0, 0
+        for name, param in self.backbone.named_parameters():
+            is_new = any(k in name for k in ('cross', 'src_encoder'))
+            param.requires_grad = is_new
+            if is_new:
+                trainable += 1
+            else:
+                frozen += 1
+        print(f"  Frozen {frozen} params | trainable {trainable} params "
+              "(cross-attn + SourceEncoder only)")
+
+
+# ---------------------------------------------------------------------------
 # Stage 2: FMLMEdit
 # ---------------------------------------------------------------------------
 

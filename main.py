@@ -28,6 +28,7 @@ import algo_edit
 import utils
 from data.edit_dataset import EditDataset
 from data.maskdisc_dataset import MaskDiscEditDataset
+from data.gpt2_edit_dataset import GPT2EditDataset
 from transformers import AutoTokenizer
 
 omegaconf.OmegaConf.register_new_resolver('cwd', os.getcwd)
@@ -40,6 +41,7 @@ omegaconf.OmegaConf.register_new_resolver(
 ALGORITHM_MAP = {
     'flm_edit': algo_edit.FLMEdit,
     'fmlm_edit': algo_edit.FMLMEdit,
+    'flm_edit_finetune': algo_edit.FLMEditFinetune,
 }
 
 
@@ -70,6 +72,13 @@ def _make_dataset(config, tokenizer, split: str):
             context_key=context_key,
             tokenizer=ctx_tok,
             context_max_length=getattr(config.data, 'context_max_length', 512),
+        )
+    elif dtype == 'gpt2_edit':
+        return GPT2EditDataset(
+            path=path,
+            tokenizer=tokenizer,
+            max_length=config.data.max_length,
+            masking_strategy=getattr(config.data, 'masking_strategy', 'random'),
         )
     else:
         return EditDataset(

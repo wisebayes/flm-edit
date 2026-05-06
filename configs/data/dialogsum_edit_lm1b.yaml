@@ -1,0 +1,14 @@
+# DialogSum data re-tokenized with BERT for finetuning from lm1b_flm.ckpt
+# Uses GPT2EditDataset with masking_strategy='random' (re-masks gold at fill_frac rate)
+
+train: dialogsum_edit_lm1b
+valid: dialogsum_edit_lm1b
+dataset_type: gpt2_edit
+
+train_path: /mnt/swordfish-pool2/ck3255/flm-edit/data/dialogsum_train_maskdisc_partial_12460.jsonl
+valid_path: /mnt/swordfish-pool2/ck3255/flm-edit/data/dialogsum_val_maskdisc_partial_500.jsonl
+
+tokenizer_name_or_path: bert-base-uncased
+cache_dir: /mnt/swordfish-pool2/ck3255/miniconda3/pkgs
+max_length: 128
+masking_strategy: random    # 'random' | 'text'
