@@ -10,6 +10,8 @@
 DATASET=${1:-dialogsum_edit_owt}   # dialogsum_edit_owt | cnndm_edit_owt
 CKPT=/mnt/swordfish-pool2/ck3255/flm-edit/checkpoints/owt_flm.ckpt
 
+export WANDB_MODE=${WANDB_MODE:-offline}
+
 python main.py \
   algo=flm_edit_finetune \
   algo.pretrained_flm_path="${CKPT}" \
@@ -22,4 +24,5 @@ python main.py \
   loader.global_batch_size=64 \
   optim.lr=1e-4 \
   training.ema=0.9999 \
+  trainer.val_check_interval=1.0 \
   wandb.name="flm_edit_finetune_owt_${DATASET}"

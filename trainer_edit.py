@@ -122,7 +122,7 @@ class TrainerEditBase(L.LightningModule):
         return model_output.log_softmax(dim=-1)
 
     def forward(self, xt, x_src_ids, sigma, sigma_prime=None,
-                use_jvp_attn=False):
+                use_jvp_attn=False, context_ids=None):
         """Process sigma scalars and call DITEdit backbone."""
         sigma = self._process_sigma(sigma)
         if sigma_prime is not None:
@@ -130,16 +130,18 @@ class TrainerEditBase(L.LightningModule):
         with torch.amp.autocast(device_type=self.device.type, dtype=torch.float32):
             model_output = self.backbone(
                 xt, x_src_ids, sigma, sigma_prime,
-                use_jvp_attn=use_jvp_attn)
+                use_jvp_attn=use_jvp_attn, context_ids=context_ids)
         return self._process_model_output(
             model_output=model_output, xt=xt, sigma=sigma)
 
-    def forward_no_softmax(self, xt, x_src_ids, tau, tau_prime=None, **kwargs):
+    def forward_no_softmax(self, xt, x_src_ids, tau, tau_prime=None,
+                           context_ids=None, **kwargs):
         tau = self._process_sigma(tau)
         if tau_prime is not None:
             tau_prime = self._process_sigma(tau_prime)
         with torch.amp.autocast(device_type=self.device.type, dtype=torch.float32):
-            return self.backbone(xt, x_src_ids, tau, tau_prime, **kwargs)
+            return self.backbone(xt, x_src_ids, tau, tau_prime,
+                                 context_ids=context_ids, **kwargs)
 
     # ------------------------------------------------------------------
     # Training & validation steps
@@ -152,17 +154,22 @@ class TrainerEditBase(L.LightningModule):
         x_src = batch['source_ids'].to(self.device)
         x_tgt = batch['target_ids'].to(self.device)
         valid_tokens = batch['attention_mask'].to(self.device)
+        context_ids = (batch['context_ids'].to(self.device)
+                       if 'context_ids' in batch else None)
 
         loss_obj = self._loss(x_src, x_tgt, valid_tokens,
-                              current_accumulation_step)
+                              current_accumulation_step,
+                              context_ids=context_ids)
         self.log('trainer/loss', loss_obj.loss.item(),
                  on_step=True, on_epoch=False, sync_dist=True)
         return loss_obj.loss
 
     def _loss(self, x_src, x_tgt, valid_tokens,
-              current_accumulation_step=None):
-        loss = self.loss({'source_ids': x_src, 'target_ids': x_tgt},
-                         current_accumulation_step)
+              current_accumulation_step=None, context_ids=None):
+        batch = {'source_ids': x_src, 'target_ids': x_tgt}
+        if context_ids is not None:
+            batch['context_ids'] = context_ids
+        loss = self.loss(batch, current_accumulation_step)
         assert loss.ndim == 2
 
         nlls = (loss * valid_tokens).sum()
@@ -185,12 +192,14 @@ class TrainerEditBase(L.LightningModule):
         x_src = batch['source_ids'].to(self.device)
         x_tgt = batch['target_ids'].to(self.device)
         valid_tokens = batch['attention_mask'].to(self.device)
-        loss_obj = self._loss(x_src, x_tgt, valid_tokens)
+        context_ids = (batch['context_ids'].to(self.device)
+                       if 'context_ids' in batch else None)
+        loss_obj = self._loss(x_src, x_tgt, valid_tokens,
+                              context_ids=context_ids)
         self.metrics.update_valid(loss_obj.nlls, loss_obj.prior_loss,
                                   loss_obj.num_tokens)
-        # Log a few source→edit examples to W&B
         if batch_idx == 0:
-            self._log_edit_samples(x_src, x_tgt)
+            self._log_edit_samples(x_src, x_tgt, context_ids=context_ids)
         return loss_obj.loss
 
     def on_validation_epoch_end(self):
@@ -200,10 +209,12 @@ class TrainerEditBase(L.LightningModule):
         self._train_mode()
 
     @torch.no_grad()
-    def _log_edit_samples(self, x_src_ids, x_tgt_ids, n=4):
+    def _log_edit_samples(self, x_src_ids, x_tgt_ids, n=4, context_ids=None):
         try:
             n = min(n, x_src_ids.shape[0])
-            pred_ids = self.generate_samples(x_src_ids[:n], num_steps=1)
+            ctx_slice = context_ids[:n] if context_ids is not None else None
+            pred_ids = self.generate_samples(x_src_ids[:n], num_steps=1,
+                                             context_ids=ctx_slice)
             rows = []
             for i in range(n):
                 src_text = self.tokenizer.decode(
@@ -277,6 +288,9 @@ class TrainerEditBase(L.LightningModule):
                     print(f"[WARNING] Failed to restore EMA: {e}")
             self._pending_ema_state = None
         return ret
+
+    def on_fit_start(self):
+        self.metrics.to(self.device)
 
     def on_train_start(self):
         if self.ema:

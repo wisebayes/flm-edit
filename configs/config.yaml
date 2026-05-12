@@ -74,6 +74,7 @@ wandb:
   group: null
   job_type: null
   name: null
+  mode: offline  # set to 'online' or unset WANDB_MODE to log to cloud
   id: ${.name}_${seed}
   tags:
     - ${data.train}

@@ -478,7 +478,7 @@ class DDiTBlock(nn.Module):
             qkv = apply_rotary_pos_emb(
                 qkv, cos.to(qkv.dtype), sin.to(qkv.dtype), use_flash= not use_jvp_attn
             )
-        
+
         if use_jvp_attn: #custom attention for JVP support
             q, k, v = qkv.unbind(dim=2) 
             q = q.transpose(1, 2)  
@@ -488,6 +488,9 @@ class DDiTBlock(nn.Module):
             x = self.custom_sdpa(q, k, v, softcap=self.softcap)
             x = x.transpose(1, 2)
         else:
+            # flash_attn requires fp16 or bf16; cast if autocast wasn't active
+            if qkv.dtype not in (torch.float16, torch.bfloat16):
+                qkv = qkv.to(torch.bfloat16)
             x = flash_attn.flash_attn_qkvpacked_func(
                 qkv, 0.0, causal=False,
                 softcap=self.softcap,

@@ -12,3 +12,6 @@ tokenizer_name_or_path: bert-base-uncased
 cache_dir: /mnt/swordfish-pool2/ck3255/miniconda3/pkgs
 max_length: 128
 masking_strategy: random    # 'random' | 'text'
+use_context: false          # set true to include dialogue as context_ids
+context_key: dialogue
+context_max_length: 256

@@ -193,13 +193,15 @@ class FLMEdit(FLMEditBase):
     def loss(self, batch, current_accumulation_step=None, **kwargs):
         x_src_ids = batch['source_ids']    # (B, L)
         x_tgt_ids = batch['target_ids']    # (B, L)
+        context_ids = batch.get('context_ids', None)
         B = x_src_ids.shape[0]
 
         tau_t = self._sample_t_interval(B, current_accumulation_step)
         t = self._tau_to_t(tau_t)
         x_t, target_data = self.corrupt_continuous(x_src_ids, x_tgt_ids, t)
 
-        log_probs = self.forward(x_t, x_src_ids, tau_t)   # (B, L, V)
+        log_probs = self.forward(x_t, x_src_ids, tau_t,
+                                 context_ids=context_ids)   # (B, L, V)
 
         # Optionally upweight positions where source differs from target
         loss = -(target_data * log_probs).sum(dim=-1)      # (B, L)
@@ -215,7 +217,8 @@ class FLMEdit(FLMEditBase):
         return self.loss(batch, current_accumulation_step)
 
     @torch.no_grad()
-    def generate_samples(self, src_ids, num_steps=None, eps=1e-5):
+    def generate_samples(self, src_ids, num_steps=None, eps=1e-5,
+                         context_ids=None):
         """Multi-step Euler ODE from source to edited target.
 
         At num_steps=1 this is a single denoiser call (approximate).
@@ -239,7 +242,8 @@ class FLMEdit(FLMEditBase):
             t_curr = self._tau_to_t(tau_curr)
             dt = self._tau_to_t(tau_next) - t_curr
 
-            log_probs = self.forward(z, src_ids, tau_curr)
+            log_probs = self.forward(z, src_ids, tau_curr,
+                                     context_ids=context_ids)
             x_1_pred = log_probs.exp()
 
             if i == num_steps - 1:
@@ -412,25 +416,26 @@ class FMLMEdit(FLMEditBase):
         self._copy_teacher_weights_to_student(
             self.teacher_model.state_dict())
 
-    def forward_with_ema(self, *args, **kwargs):
+    def forward_with_ema(self, *args, context_ids=None, **kwargs):
         assert self.ema is not None, "EMA must be available"
         self.ema.store(self._get_parameters())
         self.ema.copy_to(self._get_parameters())
         try:
             with torch.no_grad():
                 self.backbone.eval()
-                return self.forward(*args, **kwargs)
+                return self.forward(*args, context_ids=context_ids, **kwargs)
         finally:
             self.ema.restore(self._get_parameters())
             self.backbone.train()
 
-    def teacher_forward(self, xt, x_src_ids, tau):
+    def teacher_forward(self, xt, x_src_ids, tau, context_ids=None):
         """Single-time forward pass through the frozen teacher."""
         sigma = self._process_sigma(tau)
         with torch.no_grad():
             with torch.amp.autocast(device_type=self.device.type,
                                     dtype=torch.float32):
-                logits = self.teacher_model(xt, x_src_ids, sigma)
+                logits = self.teacher_model(xt, x_src_ids, sigma,
+                                            context_ids=context_ids)
         return self._process_model_output(logits, xt, sigma)
 
     def _d_tau_by_d_t(self, t):
@@ -517,6 +522,7 @@ class FMLMEdit(FLMEditBase):
     def loss(self, batch, current_accumulation_step=None, **kwargs):
         x_src_ids = batch['source_ids']
         x_tgt_ids = batch['target_ids']
+        context_ids = batch.get('context_ids', None)
         B, L = x_src_ids.shape
 
         tau_diag = self._sample_t_interval(B, current_accumulation_step)
@@ -566,22 +572,27 @@ class FMLMEdit(FLMEditBase):
 
         # ---- diagonal: anchor to teacher or one-hot ----
         if has_diag:
+            ctx_diag = (context_ids[idx_diag]
+                        if context_ids is not None else None)
             if self.teacher_model is not None:
                 on_diag_target = self.teacher_forward(
                     x_s[idx_diag], x_src_ids[idx_diag],
-                    tau_s[idx_diag]).exp()
+                    tau_s[idx_diag], context_ids=ctx_diag).exp()
             else:
                 on_diag_target = target_data[idx_diag]
             on_diag_target = stopgrad(on_diag_target)
 
         # ---- full two-time forward pass ----
-        log_D_st = self.forward(x_s, x_src_ids, tau_s, tau_t)  # (B, L, V)
+        log_D_st = self.forward(x_s, x_src_ids, tau_s, tau_t,
+                                context_ids=context_ids)  # (B, L, V)
 
         # ---- off-diagonal: PSD semigroup (eq. 22) ----
         if has_offdiag:
             with torch.no_grad():
                 x_s_od = x_s[idx_offdiag]
                 src_od = x_src_ids[idx_offdiag]
+                ctx_od = (context_ids[idx_offdiag]
+                          if context_ids is not None else None)
                 s_od = s[idx_offdiag].view(-1, 1, 1)
                 u_od = u[idx_offdiag].view(-1, 1, 1)
                 t_od = t[idx_offdiag].view(-1, 1, 1)
@@ -594,11 +605,13 @@ class FMLMEdit(FLMEditBase):
                                    'use_ema_for_psd_target', False)
                         else self.forward)
 
-                D_su = _fwd(x_s_od, src_od, tau_s_od, tau_u_od).exp()
+                D_su = _fwd(x_s_od, src_od, tau_s_od, tau_u_od,
+                            context_ids=ctx_od).exp()
                 # Advance along flow map: eq. 19 in paper
                 X_su = ((1 - u_od) / (1 - s_od + 1e-8)) * x_s_od \
                      + ((u_od - s_od) / (1 - s_od + 1e-8)) * D_su
-                D_ut = _fwd(X_su, src_od, tau_u_od, tau_t_od).exp()
+                D_ut = _fwd(X_su, src_od, tau_u_od, tau_t_od,
+                            context_ids=ctx_od).exp()
                 # Semigroup combination: eq. 22
                 lam = ((1 - t_od) * (u_od - s_od)
                        / ((1 - u_od) * (t_od - s_od) + 1e-8))
@@ -646,7 +659,8 @@ class FMLMEdit(FLMEditBase):
     # ------------------------------------------------------------------
 
     @torch.no_grad()
-    def generate_samples(self, src_ids, num_steps=1, eps=1e-5):
+    def generate_samples(self, src_ids, num_steps=1, eps=1e-5,
+                         context_ids=None):
         """One-step (or few-step) editing using the two-time flow map.
 
         At num_steps=1: single forward pass → x̂_tgt = δ_{0,1}(x_src | x_src).
@@ -665,7 +679,8 @@ class FMLMEdit(FLMEditBase):
             t_t = self._tau_to_t(tau_t).view(-1, 1, 1)
 
             log_D = self.forward(z, src_ids, tau_vals[i].expand(B),
-                                 tau_vals[i + 1].expand(B))
+                                 tau_vals[i + 1].expand(B),
+                                 context_ids=context_ids)
             D = log_D.exp()
 
             if i == num_steps - 1:

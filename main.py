@@ -79,6 +79,9 @@ def _make_dataset(config, tokenizer, split: str):
             tokenizer=tokenizer,
             max_length=config.data.max_length,
             masking_strategy=getattr(config.data, 'masking_strategy', 'random'),
+            use_context=getattr(config.data, 'use_context', False),
+            context_key=getattr(config.data, 'context_key', 'dialogue'),
+            context_max_length=getattr(config.data, 'context_max_length', 256),
         )
     else:
         return EditDataset(

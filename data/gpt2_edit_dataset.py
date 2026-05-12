@@ -30,8 +30,8 @@ class GPT2EditDataset(Dataset):
     """
     Args:
         path: JSONL file path
-        tokenizer: GPT-2 tokenizer (from transformers)
-        max_length: pad/truncate all sequences to this length
+        tokenizer: GPT-2 / BERT tokenizer (from transformers)
+        max_length: pad/truncate summary sequences to this length
         masking_strategy: 'random' | 'text'
             'random' — ignore pre-existing partial; independently mask the
                        GPT-2-tokenized gold at `default_mask_rate`
@@ -39,18 +39,29 @@ class GPT2EditDataset(Dataset):
                        tokenizer mask token, re-tokenize with GPT-2
         default_mask_rate: used only when masking_strategy='random' and the
                            sample has no `mask_ratio` field
+        use_context: if True, tokenize the source document and return
+                     'context_ids' in each batch dict
+        context_key: JSONL field name for the source document
+                     (e.g. 'dialogue', 'article')
+        context_max_length: pad/truncate context sequences to this length
     """
 
     def __init__(self, path: str, tokenizer,
                  max_length: int = 128,
                  masking_strategy: str = 'random',
-                 default_mask_rate: float = 0.25):
+                 default_mask_rate: float = 0.25,
+                 use_context: bool = False,
+                 context_key: str = 'dialogue',
+                 context_max_length: int = 256):
         assert masking_strategy in ('random', 'text'), \
             "masking_strategy must be 'random' or 'text'"
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.masking_strategy = masking_strategy
         self.default_mask_rate = default_mask_rate
+        self.use_context = use_context
+        self.context_key = context_key
+        self.context_max_length = context_max_length
 
         # Ensure there's a mask token
         if tokenizer.mask_token_id is None:
@@ -90,13 +101,30 @@ class GPT2EditDataset(Dataset):
         attn_mask = torch.zeros(self.max_length, dtype=torch.long)
         attn_mask[:real_len] = 1
 
-        return {
+        item = {
             'source_ids': src_ids,
             'target_ids': tgt_ids,
             'attention_mask': attn_mask,
         }
 
+        if self.use_context:
+            doc_text = s.get(self.context_key, '')
+            item['context_ids'] = self._encode_context(doc_text)
+
+        return item
+
     # ------------------------------------------------------------------
+
+    def _encode_context(self, text: str):
+        ids = self.tokenizer.encode(
+            text,
+            add_special_tokens=True,
+            max_length=self.context_max_length,
+            truncation=True,
+            padding='max_length',
+            return_tensors='pt',
+        )[0]
+        return ids
 
     def _raw_encode(self, text: str):
         return self.tokenizer.encode(text, add_special_tokens=True)

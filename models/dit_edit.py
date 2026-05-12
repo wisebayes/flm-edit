@@ -239,23 +239,33 @@ class DITEdit(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         # Source text encoder
         self.src_encoder = SourceEncoder(config, vocab_size)
 
+        # Optional dialogue/document context encoder (independent weights)
+        if getattr(getattr(config, 'data', None), 'use_context', False):
+            self.ctx_encoder = SourceEncoder(config, vocab_size)
+        else:
+            self.ctx_encoder = None
+
         self.scale_by_sigma = config.model.scale_by_sigma
         self.is_di4c = False
         self.is_di4c_deterministic = False
 
     def forward(self, x_noisy, x_src_ids, sigma, sigma_prime=None,
-                use_jvp_attn=False):
+                use_jvp_attn=False, context_ids=None):
         """
         Args:
             x_noisy:     (B, L, V) interpolated continuous source+target embedding
             x_src_ids:   (B, L) integer source token IDs
             sigma:       (B,) flow time τ_s
             sigma_prime: (B,) flow time τ_t (two-time denoiser only)
+            context_ids: (B, L_ctx) integer document context token IDs, or None
         Returns:
             logits: (B, L, V) pre-softmax output
         """
         # Encode source once; reused by all cross-attention layers
-        src_enc = self.src_encoder(x_src_ids)          # (B, L, dim)
+        src_enc = self.src_encoder(x_src_ids)          # (B, L_src, dim)
+        if context_ids is not None and self.ctx_encoder is not None:
+            ctx_enc = self.ctx_encoder(context_ids)    # (B, L_ctx, dim)
+            src_enc = torch.cat([src_enc, ctx_enc], dim=1)  # (B, L_src+L_ctx, dim)
 
         # Time conditioning
         t_emb = self.sigma_map(sigma)
