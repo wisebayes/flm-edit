@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+
+# Training outputs and checkpoints (large binaries)
+outputs/
+checkpoints/
+wandb/
+
+# Logs
+*.log
+
+# Results
+results_*.jsonl
+
+# Hydra outputs
+multirun/
+.hydra/
+
+# Editor / OS
+.DS_Store
+.vscode/
+*.swp
