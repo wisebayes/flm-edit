@@ -3,13 +3,16 @@ __pycache__/
 *.pyo
 .Python
 
-# Training outputs and checkpoints (large binaries)
-outputs/
+# Training checkpoints (multi-GB; too large for GitHub)
+outputs/**/checkpoints/
 checkpoints/
-wandb/
 
-# Logs
+# Wandb at repo root only (outputs/**/wandb/ is tracked)
+/wandb/
+
+# Logs outside outputs/
 *.log
+!outputs/**/*.log
 
 # Results
 results_*.jsonl
@@ -17,9 +20,11 @@ results_*.jsonl
 # CNN/DM datasets (too large for GitHub; keep locally)
 data/cnndm_*.jsonl
 
-# Hydra outputs
+# Hydra outputs (track run configs under outputs/)
 multirun/
 .hydra/
+!outputs/**/.hydra/
+!outputs/**/.hydra/**
 
 # Editor / OS
 .DS_Store

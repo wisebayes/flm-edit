@@ -1,0 +1,144 @@
+mode: train
+seed: 1
+loader:
+  global_batch_size: 64
+  eval_global_batch_size: ${.global_batch_size}
+  batch_size: ${div_up:${.global_batch_size}, ${eval:${trainer.devices} * ${trainer.num_nodes}}}
+  eval_batch_size: ${div_up:${.eval_global_batch_size}, ${eval:${trainer.devices}
+    * ${trainer.num_nodes}}}
+  num_workers: 4
+  pin_memory: true
+sampling:
+  predictor: euler
+  steps:
+  - 1
+  - 4
+  - 16
+  - 64
+  use_float64: true
+  p_nucleus: 1.0
+  num_sample_batches: 1
+  num_sample_log: 4
+  semi_ar: false
+  temperature: 1.0
+training:
+  ema: 0.9999
+  antithetic_sampling: true
+  sampling_eps: 0.001
+  finetune_path: ''
+  not_sampling_t: false
+eval:
+  checkpoint_path: ''
+  disable_ema: false
+  compute_generative_perplexity: true
+  perplexity_batch_size: 8
+  compute_perplexity_on_sanity: false
+  gen_ppl_eval_model_name_or_path: gpt2-large
+  generate_samples: true
+  generated_samples_path: ${cwd:}/samples.json
+optim:
+  weight_decay: 0
+  lr: 0.0001
+  beta1: 0.9
+  beta2: 0.999
+  eps: 1.0e-08
+trainer:
+  _target_: lightning.Trainer
+  accelerator: cuda
+  num_nodes: 1
+  devices: ${device_count:}
+  accumulate_grad_batches: ${div_up:${loader.global_batch_size}, ${eval:${trainer.devices}
+    * ${loader.batch_size} * ${trainer.num_nodes}}}
+  gradient_clip_val: 1.0
+  precision: bf16
+  num_sanity_val_steps: 2
+  max_steps: 50000
+  log_every_n_steps: 100
+  limit_train_batches: 1.0
+  limit_val_batches: 1.0
+  val_check_interval: 1.0
+wandb:
+  project: flm-edit
+  notes: FLM-Edit
+  group: null
+  job_type: null
+  name: flm_edit_finetune_lm1b_dialogsum_edit_lm1b
+  mode: offline
+  id: ${.name}_${seed}
+  tags:
+  - ${data.train}
+  - ${algo.name}
+checkpointing:
+  save_dir: ${cwd:}
+  resume_from_ckpt: false
+  resume_ckpt_path: ${.save_dir}/checkpoints/last.ckpt
+is_di4c: false
+is_di4c_deterministic: true
+callbacks:
+  checkpoint_every_n_steps:
+    _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    save_top_k: -1
+    save_last: false
+    dirpath: ${checkpointing.save_dir}/checkpoints
+    verbose: true
+    auto_insert_metric_name: false
+    every_n_train_steps: 25000
+  checkpoint_monitor:
+    _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    monitor: val/nll
+    mode: min
+    save_top_k: 1
+    save_last: true
+    dirpath: ${checkpointing.save_dir}/checkpoints
+    filename: best_nll
+    auto_insert_metric_name: false
+    verbose: true
+  learning_rate_monitor:
+    _target_: lightning.pytorch.callbacks.LearningRateMonitor
+    logging_interval: step
+data:
+  train: dialogsum_edit_lm1b
+  valid: dialogsum_edit_lm1b
+  dataset_type: gpt2_edit
+  train_path: /mnt/swordfish-pool2/ck3255/flm-edit/data/dialogsum_train_maskdisc_partial_12460.jsonl
+  valid_path: /mnt/swordfish-pool2/ck3255/flm-edit/data/dialogsum_val_maskdisc_partial_500.jsonl
+  tokenizer_name_or_path: bert-base-uncased
+  cache_dir: /mnt/swordfish-pool2/ck3255/miniconda3/pkgs
+  max_length: 128
+  masking_strategy: random
+model:
+  name: small
+  type: ddit
+  hidden_size: 768
+  cond_dim: 128
+  length: 128
+  n_blocks: 12
+  n_heads: 12
+  scale_by_sigma: true
+  dropout: 0.1
+  tie_word_embeddings: false
+  vocab_lookup: true
+  n_src_encoder_blocks: 4
+strategy:
+  _target_: lightning.pytorch.strategies.DDPStrategy
+  find_unused_parameters: false
+lr_scheduler:
+  _target_: transformers.get_constant_schedule_with_warmup
+  num_warmup_steps: 2500
+algo:
+  name: flm_edit_finetune
+  backbone: dit_edit
+  parameterization: mean
+  time_conditioning: true
+  T: 0
+  causal_attention: false
+  t_max: 1.0
+  t_min: 0.0
+  double_temb: false
+  learnable_loss_weighting: false
+  use_instruction_conditioning: false
+  ignore_bos: false
+  upweight_changed_tokens: false
+  pretrained_flm_path: /mnt/swordfish-pool2/ck3255/flm-edit/checkpoints/lm1b_flm.ckpt
+  pretrained_use_ema: true
+  freeze_backbone: false

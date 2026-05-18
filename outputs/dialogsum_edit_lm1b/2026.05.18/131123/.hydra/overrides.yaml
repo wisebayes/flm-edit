@@ -1,0 +1,13 @@
+- algo=fmlm_edit
+- algo.teacher_path=outputs/dialogsum_edit_lm1b/2026.05.12/115608/checkpoints/best_nll.ckpt
+- algo.initialize_student_from_teacher=true
+- data=dialogsum_edit_lm1b
+- data.use_context=true
+- model=small
+- model.length=128
+- trainer.max_steps=50000
+- trainer.val_check_interval=1.0
+- loader.global_batch_size=64
+- optim.lr=3e-5
+- training.ema=0.9999
+- wandb.name=fmlm_edit_distill_lm1b_ctx

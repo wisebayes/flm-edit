@@ -1,0 +1,14 @@
+- algo=flm_edit_finetune
+- algo.pretrained_flm_path=/mnt/swordfish-pool2/ck3255/flm-edit/checkpoints/lm1b_flm.ckpt
+- algo.pretrained_use_ema=true
+- algo.freeze_backbone=false
+- data=dialogsum_edit_lm1b
+- data.use_context=true
+- model=small
+- model.length=128
+- trainer.max_steps=50000
+- loader.global_batch_size=64
+- optim.lr=1e-4
+- training.ema=0.9999
+- trainer.val_check_interval=1.0
+- wandb.name=flm_edit_finetune_lm1b_dialogsum_ctx
