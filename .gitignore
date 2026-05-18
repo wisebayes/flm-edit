@@ -14,6 +14,9 @@ wandb/
 # Results
 results_*.jsonl
 
+# CNN/DM datasets (too large for GitHub; keep locally)
+data/cnndm_*.jsonl
+
 # Hydra outputs
 multirun/
 .hydra/
